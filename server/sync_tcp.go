@@ -2,10 +2,13 @@ package server
 
 import (
 	"coding2fun.in/kiah/config"
+	"coding2fun.in/kiah/core"
+	"fmt"
 	"io"
 	"log"
 	"net"
 	"strconv"
+	"strings"
 )
 
 func RunSyncTCPServer() {
@@ -35,26 +38,34 @@ func RunSyncTCPServer() {
 				log.Println("error: ", err.Error())
 			}
 			log.Println("command :", cmd)
-			if err = respond(cmd, conn); err != nil {
-				log.Println("error while writing to connection : ", err.Error())
-				break
-			}
+			respond(cmd, conn)
 		}
 	}
 }
 
-func respond(cmd string, conn net.Conn) error {
-	if _, err := conn.Write([]byte(cmd)); err != nil {
-		return err
+func respond(cmd *core.RedisCommand, conn net.Conn) {
+	err := core.EvalAndRespond(cmd, conn)
+	if err != nil {
+		respondError(err, conn)
 	}
-	return nil
 }
 
-func readCommand(conn net.Conn) (string, error) {
+func respondError(err error, conn net.Conn) {
+	_, _ = conn.Write([]byte(fmt.Sprintf("-%s\r\n", err)))
+}
+
+func readCommand(conn net.Conn) (*core.RedisCommand, error) {
 	buf := make([]byte, 512)
 	n, err := conn.Read(buf)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	return string(buf[:n]), nil
+	tokens, err := core.DecodeArrayString(buf[:n])
+	if err != nil {
+		return nil, err
+	}
+	return &core.RedisCommand{
+		Command: strings.ToUpper(tokens[0]),
+		Args:    tokens[1:],
+	}, nil
 }
